@@ -23,6 +23,10 @@ import {
 
 const API_BASE = "https://focuslens-backend-422525192597.us-central1.run.app/api";
 
+/**
+ * FocusLens Main Application Component
+ * Implements Metacognitive learning strategies via AI-driven synthesis and active recall.
+ */
 const App = () => {
   const [view, setView] = useState("home");
   const [input, setInput] = useState("");
@@ -39,6 +43,11 @@ const App = () => {
   const [quizIndex, setQuizIndex] = useState(0);
   const [quizScore, setQuizScore] = useState(0);
 
+  /**
+   * Displays a transient notification toast.
+   * @param {string} message - The message to display.
+   * @param {'success'|'error'} type - The type of toast.
+   */
   const showToast = (message, type = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -80,6 +89,9 @@ const App = () => {
     }
   };
 
+  /**
+   * Sends the analysis results to the user's persistent vault (Firestore + Sheets).
+   */
   const handleSave = async () => {
     if (!data) return;
     try {
@@ -87,12 +99,19 @@ const App = () => {
         title: data.title,
         summary: data.summary,
       });
+      // Update local knowledge base
+      const updatedKB = [{ title: data.title, summary: data.summary }, ...knowledgeBase];
+      setKnowledgeBase(updatedKB);
+      localStorage.setItem('focuslens_kb', JSON.stringify(updatedKB));
       showToast("Intelligence successfully saved to Vault.");
     } catch (err) {
       showToast("Failed to save to Vault.", "error");
     }
   };
 
+  /**
+   * Schedules a spaced repetition review in Google Calendar.
+   */
   const handleSchedule = async () => {
     if (!data) return;
     try {
@@ -145,14 +164,33 @@ const App = () => {
     }
   };
 
+  /**
+   * Fetches the student's knowledge base from the cloud and syncs to local storage.
+   */
   const fetchKnowledge = async () => {
     try {
       const res = await axios.get(`${API_BASE}/knowledge`);
       setKnowledgeBase(res.data);
+      localStorage.setItem('focuslens_kb', JSON.stringify(res.data));
       setView("knowledge");
     } catch (err) {
-      showToast("Library unreachable.", "error");
+      // Fallback to local storage
+      const localKB = localStorage.getItem('focuslens_kb');
+      if (localKB) {
+        setKnowledgeBase(JSON.parse(localKB));
+        setView("knowledge");
+        showToast("Offline mode: showing local data.");
+      } else {
+        showToast("Library unreachable.", "error");
+      }
     }
+  };
+
+  /**
+   * Exports the current intelligence map as a formatted PDF (Print).
+   */
+  const exportPDF = () => {
+    window.print();
   };
 
   return (
@@ -384,6 +422,23 @@ const App = () => {
                       }}
                     >
                       <Calendar size={16} /> Schedule Review
+                    </button>
+                    <button
+                      onClick={exportPDF}
+                      className="btn-secondary"
+                      style={{
+                        fontSize: "0.875rem",
+                        padding: "0.5rem 1rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        background: "rgba(255,255,255,0.05)",
+                        borderRadius: "8px",
+                        color: "white",
+                        border: "1px solid var(--glass-border)",
+                      }}
+                    >
+                      <Book size={16} /> Export PDF
                     </button>
                   </div>
                 </div>
