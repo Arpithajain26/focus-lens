@@ -22,7 +22,9 @@ limiter = Limiter(
 
 # Restricted CORS configuration - only allow specific origins
 ALLOWED_ORIGINS = [
-    os.getenv("FRONTEND_URL", "http://localhost:3000"),
+    os.getenv("FRONTEND_URL", "https://focuslens-494202.web.app"),
+    "https://focuslens-494202.web.app",
+    "https://focuslens-494202.firebaseapp.com",
     "http://127.0.0.1:3000",
     "http://localhost:3000"
 ]

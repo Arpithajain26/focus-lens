@@ -21,7 +21,7 @@ import {
   Shield,
 } from "lucide-react";
 
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = "https://focuslens-backend-422525192597.us-central1.run.app/api";
 
 const App = () => {
   const [view, setView] = useState("home");
