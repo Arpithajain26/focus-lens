@@ -8,6 +8,11 @@ import gemini_service
 import google_services
 from datetime import datetime
 import secrets
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -48,14 +53,15 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://focuslens-backend-422525192597.us-central1.run.app https://generativelanguage.googleapis.com;"
     return response
 
 # Input validation constants
-MAX_CONTENT_LENGTH = 50000  # 50KB max
-MAX_TITLE_LENGTH = 500
-MAX_QUESTION_LENGTH = 2000
+MAX_CONTENT_LENGTH: int = 50000  # 50KB max
+MAX_TITLE_LENGTH: int = 500
+MAX_QUESTION_LENGTH: int = 2000
 
-def validate_input(content, max_length):
+def validate_input(content: any, max_length: int) -> str:
     """Validate and sanitize user input."""
     if not content:
         return None
