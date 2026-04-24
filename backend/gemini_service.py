@@ -1,57 +1,96 @@
+"""
+Service for handling Google Gemini Generative AI operations.
+
+This module provides summarization, flashcard generation, and
+Q&A functions using the Google Gemini model.
+"""
+
+import json
+import logging
 import os
+from typing import List, Dict
+
 import google.generativeai as genai
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Configure Gemini
-api_key = os.getenv("GEMINI_API_KEY")
-if api_key and api_key != "your_gemini_api_key_here":
-    genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-flash-latest')
+_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+if _API_KEY and _API_KEY != "your_gemini_api_key_here":
+    genai.configure(api_key=_API_KEY)
+_MODEL = genai.GenerativeModel('gemini-flash-latest')
 
-def summarize_content(content):
+
+def summarize_content(content: str) -> List[str]:
     """
-    Summarizes the provided content into 5 bullet points.
+    Summarizes the provided content into exactly 5 bullet points.
+
+    Args:
+        content (str): The text content to summarize.
+
+    Returns:
+        List[str]: A list of up to 5 summarized bullet points.
     """
-    prompt = f"""
+    prompt: str = f"""
     You are FocusLens, an AI learning assistant. 
     Summarize the following content into exactly 5 concise, high-impact bullet points for a student.
     Content: {content}
     """
-    response = model.generate_content(prompt)
-    # Split by lines and clean
-    bullets = [line.strip().lstrip('-').lstrip('*').strip() for line in response.text.strip().split('\n') if line.strip()][:5]
-    return bullets
+    try:
+        response = _MODEL.generate_content(prompt)
+        bullets: List[str] = [
+            line.strip().lstrip('-').lstrip('*').strip()
+            for line in response.text.strip().split('\n')
+            if line.strip()
+        ][:5]
+        return bullets
+    except Exception as e:
+        logger.error("Failed to generate summary: %s", e)
+        return []
 
-def generate_flashcards(content):
+
+def generate_flashcards(content: str) -> List[Dict[str, str]]:
     """
-    Generates 5 flashcards (Question & Answer) from the content.
-    Returns a list of dicts: [{'question': '...', 'answer': '...'}]
+    Generates 5 flashcards (Question & Answer) from the provided content.
+
+    Args:
+        content (str): The text context to base questions upon.
+
+    Returns:
+        List[Dict[str, str]]: A list of dictionaries, each containing 'question' and 'answer' keys.
     """
-    prompt = f"""
+    prompt: str = f"""
     You are FocusLens. Generate 5 flashcards for students from the following content.
     Format your response as a valid JSON array of objects with 'question' and 'answer' keys.
     Content: {content}
     """
-    response = model.generate_content(prompt)
-    import json
     try:
-        # Extract JSON if wrapped in markdown
-        text = response.text
+        response = _MODEL.generate_content(prompt)
+        text: str = response.text
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0]
         return json.loads(text)
     except Exception as e:
-        print(f"Error parsing flashcards: {e}")
+        logger.error("Error parsing flashcards: %s", e)
         return []
 
-def ask_question(context, question):
+
+def ask_question(context: str, question: str) -> str:
     """
     Answers a follow-up question based on the provided content context.
+
+    Args:
+        context (str): The source text material.
+        question (str): The user's specific question.
+
+    Returns:
+        str: The AI-generated answer.
     """
-    prompt = f"""
+    prompt: str = f"""
     Context: {context}
     
     Student Question: {question}
@@ -59,5 +98,9 @@ def ask_question(context, question):
     As FocusLens, answer the student's question based ONLY on the context provided. 
     Be concise and helpful.
     """
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    try:
+        response = _MODEL.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logger.error("Failed to answer question: %s", e)
+        return "I apologize, but I could not compute an answer right now."

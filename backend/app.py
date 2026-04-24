@@ -1,27 +1,67 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 import gemini_service
 import google_services
 from datetime import datetime
+import secrets
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-# Restricted CORS configuration
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-CORS(app, resources={r"/*": {"origins": [frontend_url, "http://127.0.0.1:3000"]}})
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+# Restricted CORS configuration - only allow specific origins
+ALLOWED_ORIGINS = [
+    os.getenv("FRONTEND_URL", "http://localhost:3000"),
+    "http://127.0.0.1:3000",
+    "http://localhost:3000"
+]
+
+CORS(app, 
+     resources={r"/*": {"origins": ALLOWED_ORIGINS}},
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS", "DELETE", "PUT"])
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', frontend_url)
+    # Only echo back if origin is in whitelist
+    origin = request.headers.get('Origin', '')
+    if origin in ALLOWED_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
     response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
     return response
 
+# Input validation constants
+MAX_CONTENT_LENGTH = 50000  # 50KB max
+MAX_TITLE_LENGTH = 500
+MAX_QUESTION_LENGTH = 2000
+
+def validate_input(content, max_length):
+    """Validate and sanitize user input."""
+    if not content:
+        return None
+    if isinstance(content, str):
+        content = content.strip()
+    if len(str(content)) > max_length:
+        raise ValueError(f"Input exceeds maximum length of {max_length} characters")
+    return content
+
 @app.route('/api/analyze', methods=['GET', 'POST', 'OPTIONS'])
+@limiter.limit("10 per hour")
 def analyze():
     if request.method == 'GET':
         return jsonify({'error': 'This endpoint only accepts POST requests from the FocusLens frontend.'}), 405
@@ -29,17 +69,18 @@ def analyze():
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
     
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'Invalid JSON or empty body'}), 400
-        
-    content = data.get('content')
-    title = data.get('title', 'Untitled Topic')
-    
-    if not content:
-        return jsonify({'error': 'No content provided'}), 400
-        
     try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'error': 'Invalid JSON or empty body'}), 400
+        
+        # Validate inputs
+        content = validate_input(data.get('content'), MAX_CONTENT_LENGTH)
+        title = validate_input(data.get('title', 'Untitled Topic'), MAX_TITLE_LENGTH)
+        
+        if not content:
+            return jsonify({'error': 'No content provided'}), 400
+            
         # Check if Gemini is configured
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or api_key == "your_gemini_api_key_here":
@@ -66,63 +107,92 @@ def analyze():
             'summary': summary,
             'flashcards': flashcards
         })
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
         print(f"CRITICAL ERROR in /api/analyze: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/ask', methods=['POST'])
+@limiter.limit("20 per hour")
 def ask():
     """
-    Answers a follow-up question.
+    Answers a follow-up question with input validation.
     """
-    data = request.json
-    context = data.get('context')
-    question = data.get('question')
-    
-    if not context or not question:
-        return jsonify({'error': 'Missing context or question'}), 400
-        
     try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'error': 'Invalid JSON'}), 400
+            
+        context = validate_input(data.get('context'), MAX_CONTENT_LENGTH)
+        question = validate_input(data.get('question'), MAX_QUESTION_LENGTH)
+        
+        if not context or not question:
+            return jsonify({'error': 'Missing context or question'}), 400
+            
         answer = gemini_service.ask_question(context, question)
         return jsonify({'answer': answer})
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in /api/ask: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/save', methods=['POST'])
+@limiter.limit("5 per hour")
 def save():
     """
-    Saves to Firestore and Google Sheets.
+    Saves to Firestore and Google Sheets with validation.
     """
-    data = request.json
-    title = data.get('title')
-    summary = data.get('summary')
-    
-    if not title or not summary:
-        return jsonify({'error': 'Missing title or summary'}), 400
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'error': 'Invalid JSON'}), 400
+            
+        title = validate_input(data.get('title'), MAX_TITLE_LENGTH)
+        summary = validate_input(data.get('summary'), MAX_CONTENT_LENGTH)
         
-    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    
-    firestore_ok = google_services.save_to_firestore(title, summary)
-    sheets_ok = google_services.save_to_sheets(title, ", ".join(summary), date_str)
-    
-    return jsonify({
-        'firestore': firestore_ok,
-        'sheets': sheets_ok
-    })
+        if not title or not summary:
+            return jsonify({'error': 'Missing title or summary'}), 400
+            
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        firestore_ok = google_services.save_to_firestore(title, summary)
+        sheets_ok = google_services.save_to_sheets(title, ", ".join(summary) if isinstance(summary, list) else summary, date_str)
+        
+        return jsonify({
+            'firestore': firestore_ok,
+            'sheets': sheets_ok
+        })
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        print(f"Error in /api/save: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/schedule', methods=['POST'])
+@limiter.limit("5 per hour")
 def schedule():
     """
-    Schedules a review reminder in Google Calendar.
+    Schedules a review reminder in Google Calendar with validation.
     """
-    data = request.json
-    topic = data.get('topic')
-    
-    if not topic:
-        return jsonify({'error': 'Missing topic'}), 400
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'error': 'Invalid JSON'}), 400
+            
+        topic = validate_input(data.get('topic'), MAX_TITLE_LENGTH)
         
-    ok = google_services.schedule_reminder(topic)
-    return jsonify({'success': ok})
+        if not topic:
+            return jsonify({'error': 'Missing topic'}), 400
+            
+        ok = google_services.schedule_reminder(topic)
+        return jsonify({'success': ok})
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        print(f"Error in /api/schedule: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/knowledge', methods=['GET'])
 def get_knowledge():
