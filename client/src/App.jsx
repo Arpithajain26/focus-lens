@@ -35,6 +35,9 @@ const App = () => {
   const [knowledgeBase, setKnowledgeBase] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [toast, setToast] = useState(null);
+  const [quizMode, setQuizMode] = useState(false);
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [quizScore, setQuizScore] = useState(0);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -117,6 +120,9 @@ const App = () => {
       const res = await axios.post(`${API_BASE}/analyze`, { content: input });
       setData(res.data);
       setView("room");
+      setQuizMode(false);
+      setQuizIndex(0);
+      setQuizScore(0);
       showToast("Intelligence generated.");
     } catch (err) {
       showToast(err.response?.data?.error || err.message, "error");
@@ -428,6 +434,16 @@ const App = () => {
                         <Volume2 size={24} aria-hidden="true" />
                       </button>
                     </div>
+                    
+                    <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.5rem', opacity: 0.8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', fontWeight: 700 }}>
+                            <Zap size={14} className="text-accent" /> {data.metadata?.difficulty || 'Standard'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', fontWeight: 700 }}>
+                            <History size={14} className="text-accent" /> {data.metadata?.estimated_time || '5m read'}
+                        </div>
+                    </div>
+
                     <ul
                       style={{
                         listStyle: "none",
@@ -530,6 +546,45 @@ const App = () => {
                     </div>
                     <VoiceInput onAsk={handleAsk} />
                   </div>
+
+                  {/* Study Roadmap */}
+                  <div className="input-card" style={{ textAlign: "left" }}>
+                    <div className="card-title">
+                      <div className="title-indicator" style={{ background: '#10b981' }} />
+                      <div>
+                        <h3 style={{ fontSize: "1.5rem", fontWeight: 800 }}>
+                          Mastery Roadmap
+                        </h3>
+                        <p
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-dim)",
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                          }}
+                        >
+                          3-Day Study Plan
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {data.roadmap?.map((step, i) => (
+                            <div key={i} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                                <div style={{ 
+                                    minWidth: '60px', 
+                                    padding: '0.25rem', 
+                                    background: 'rgba(16, 185, 129, 0.1)', 
+                                    color: '#10b981', 
+                                    borderRadius: '6px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 800,
+                                    textAlign: 'center'
+                                }}>{step.day}</div>
+                                <div style={{ fontSize: '0.9rem', color: 'var(--text-main)', opacity: 0.9 }}>{step.task}</div>
+                            </div>
+                        ))}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="results-sidebar">
@@ -562,9 +617,71 @@ const App = () => {
                         gap: "1rem",
                       }}
                     >
-                      {data.flashcards.map((card, i) => (
-                        <Flashcard key={i} card={card} />
-                      ))}
+                      {!quizMode ? (
+                          <>
+                            {data.flashcards.map((card, i) => (
+                                <Flashcard key={i} card={card} />
+                            ))}
+                            <button 
+                                onClick={() => setQuizMode(true)}
+                                className="btn-primary" 
+                                style={{ marginTop: '1rem', width: '100%' }}
+                            >
+                                Start Active Quiz
+                            </button>
+                          </>
+                      ) : (
+                          <div style={{ textAlign: 'center', padding: '1rem' }}>
+                              {quizIndex < data.flashcards.length ? (
+                                  <motion.div
+                                    initial={{ opacity: 0, x: 20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    key={quizIndex}
+                                  >
+                                      <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginBottom: '1rem' }}>QUESTION {quizIndex + 1} OF {data.flashcards.length}</p>
+                                      <h4 style={{ marginBottom: '2rem', fontSize: '1.25rem' }}>{data.flashcards[quizIndex].question}</h4>
+                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem' }}>
+                                          <button 
+                                            onClick={() => {
+                                                setQuizScore(quizScore + 1);
+                                                setQuizIndex(quizIndex + 1);
+                                            }}
+                                            className="btn-secondary"
+                                            style={{ borderColor: '#10b981', color: '#10b981' }}
+                                          >
+                                              I Knew This!
+                                          </button>
+                                          <button 
+                                            onClick={() => setQuizIndex(quizIndex + 1)}
+                                            className="btn-secondary"
+                                            style={{ borderColor: '#ef4444', color: '#ef4444' }}
+                                          >
+                                              Still Learning...
+                                          </button>
+                                      </div>
+                                  </motion.div>
+                              ) : (
+                                  <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                                      <h4 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Mastery Achieved!</h4>
+                                      <div style={{ fontSize: '3rem', fontWeight: 900, color: 'var(--accent)', marginBottom: '1rem' }}>
+                                          {Math.round((quizScore / data.flashcards.length) * 100)}%
+                                      </div>
+                                      <p style={{ color: 'var(--text-dim)', marginBottom: '2rem' }}>Knowledge node successfully integrated.</p>
+                                      <button 
+                                        onClick={() => {
+                                            setQuizMode(false);
+                                            setQuizIndex(0);
+                                            setQuizScore(0);
+                                        }}
+                                        className="btn-primary"
+                                        style={{ width: '100%' }}
+                                      >
+                                          Reset Quiz
+                                      </button>
+                                  </motion.div>
+                              )}
+                          </div>
+                      )}
                     </div>
                   </div>
                 </div>

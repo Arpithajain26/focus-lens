@@ -20,6 +20,9 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
+# Simple in-memory cache for Gemini responses
+analysis_cache = {}
+
 # Restricted CORS configuration - only allow specific origins
 ALLOWED_ORIGINS = [
     os.getenv("FRONTEND_URL", "https://focuslens-494202.web.app"),
@@ -76,6 +79,13 @@ def analyze():
         if not data:
             return jsonify({'error': 'Invalid JSON or empty body'}), 400
         
+        # Check cache
+        content = data.get('content', '')
+        cache_key = hash(content)
+        if cache_key in analysis_cache:
+            print("Serving from cache...")
+            return jsonify(analysis_cache[cache_key])
+
         # Validate inputs
         content = validate_input(data.get('content'), MAX_CONTENT_LENGTH)
         title = validate_input(data.get('title', 'Untitled Topic'), MAX_TITLE_LENGTH)
@@ -99,16 +109,32 @@ def analyze():
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_summary = executor.submit(gemini_service.summarize_content, content)
             future_flashcards = executor.submit(gemini_service.generate_flashcards, content)
+            future_roadmap = executor.submit(gemini_service.generate_study_roadmap, content)
             
             summary = future_summary.result()
             flashcards = future_flashcards.result()
+            roadmap = future_roadmap.result()
         
+        # Calculate some educational metadata
+        estimated_time = f"{len(content.split()) // 100 + 5} minutes"
+        difficulty = "Intermediate" if len(content) > 1000 else "Foundational"
+
         print("Analysis complete.")
-        return jsonify({
+        result = {
             'title': title,
             'summary': summary,
-            'flashcards': flashcards
-        })
+            'flashcards': flashcards,
+            'roadmap': roadmap,
+            'metadata': {
+                'estimated_time': estimated_time,
+                'difficulty': difficulty
+            }
+        }
+        
+        # Store in cache
+        analysis_cache[cache_key] = result
+        
+        return jsonify(result)
     except ValueError as ve:
         return jsonify({'error': str(ve)}), 400
     except Exception as e:

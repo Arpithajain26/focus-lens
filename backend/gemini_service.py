@@ -104,3 +104,28 @@ def ask_question(context: str, question: str) -> str:
     except Exception as e:
         logger.error("Failed to answer question: %s", e)
         return "I apologize, but I could not compute an answer right now."
+
+
+def generate_study_roadmap(content: str) -> List[Dict[str, str]]:
+    """
+    Generates a 3-day study roadmap for mastering the content.
+    """
+    prompt: str = f"""
+    You are FocusLens. Based on the following content, generate a 3-day step-by-step study roadmap 
+    to help a student master this material. 
+    Format your response as a valid JSON array of objects with 'day' and 'task' keys.
+    Content: {content}
+    """
+    try:
+        response = _MODEL.generate_content(prompt)
+        text: str = response.text
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        return json.loads(text)
+    except Exception as e:
+        logger.error("Error generating roadmap: %s", e)
+        return [
+            {"day": "Day 1", "task": "Review basic concepts and definitions."},
+            {"day": "Day 2", "task": "Practice active recall with flashcards."},
+            {"day": "Day 3", "task": "Summarize the material in your own words."}
+        ]
